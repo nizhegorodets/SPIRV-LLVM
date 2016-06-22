@@ -71,6 +71,8 @@ public:
     MemoryModel(MemoryModelOpenCL){
     AddrModel = sizeof(size_t) == 32 ? AddressingModelPhysical32
         : AddressingModelPhysical64;
+    // OpenCL memory model requires Kernel capability
+    SPIRVModuleImpl::addCapability(CapabilityKernel);
   };
   virtual ~SPIRVModuleImpl();
 
@@ -138,8 +140,6 @@ public:
   void setAlignment(SPIRVValue *, SPIRVWord);
   void setMemoryModel(SPIRVMemoryModelKind MM) {
     MemoryModel = MM;
-    if (MemoryModel == spv::MemoryModelOpenCL)
-      addCapability(CapabilityKernel);
   }
   void setName(SPIRVEntry *E, const std::string &Name);
   void setSourceLanguage(SourceLanguage Lang, SPIRVWord Ver) {
@@ -197,12 +197,14 @@ public:
   virtual SPIRVTypeImage *addImageType(SPIRVType *,
       const SPIRVTypeImageDescriptor &, SPIRVAccessQualifierKind);
   virtual SPIRVTypeSampler *addSamplerType();
+  virtual SPIRVTypePipeStorage *addPipeStorageType();
   virtual SPIRVTypeSampledImage *addSampledImageType(SPIRVTypeImage *T);
   virtual SPIRVTypeStruct *openStructType(unsigned, const std::string &);
   virtual void closeStructType(SPIRVTypeStruct *T, bool);
   virtual SPIRVTypeVector *addVectorType(SPIRVType *, SPIRVWord);
   virtual SPIRVType *addOpaqueGenericType(Op);
   virtual SPIRVTypeDeviceEvent *addDeviceEventType();
+  virtual SPIRVTypeQueue *addQueueType();
   virtual SPIRVTypePipe *addPipeType();
   virtual SPIRVTypeVoid *addVoidType();
   virtual void createForwardPointers();
@@ -222,6 +224,8 @@ public:
   virtual SPIRVValue *addUndef(SPIRVType *TheType);
   virtual SPIRVValue *addSamplerConstant(SPIRVType *TheType, SPIRVWord AddrMode,
       SPIRVWord ParametricMode, SPIRVWord FilterMode);
+  virtual SPIRVValue* addPipeStorageConstant(SPIRVType* TheType,
+    SPIRVWord PacketSize, SPIRVWord PacketAlign, SPIRVWord Capacity);
 
   // Instruction creation functions
   virtual SPIRVInstruction *addPtrAccessChainInst(SPIRVType *, SPIRVValue *,
@@ -435,6 +439,13 @@ SPIRVModuleImpl::addSamplerConstant(SPIRVType* TheType,
     SPIRVWord AddrMode, SPIRVWord ParametricMode, SPIRVWord FilterMode) {
   return addConstant(new SPIRVConstantSampler(this, TheType, getId(), AddrMode,
       ParametricMode, FilterMode));
+}
+
+SPIRVValue*
+SPIRVModuleImpl::addPipeStorageConstant(SPIRVType* TheType,
+    SPIRVWord PacketSize, SPIRVWord PacketAlign, SPIRVWord Capacity) {
+  return addConstant(new SPIRVConstantPipeStorage(this, TheType, getId(),
+    PacketSize, PacketAlign, Capacity));
 }
 
 void
@@ -726,6 +737,11 @@ SPIRVModuleImpl::addDeviceEventType() {
   return addType(new SPIRVTypeDeviceEvent(this, getId()));
 }
 
+SPIRVTypeQueue *
+SPIRVModuleImpl::addQueueType() {
+  return addType(new SPIRVTypeQueue(this, getId()));
+}
+
 SPIRVTypePipe*
 SPIRVModuleImpl::addPipeType() {
   return addType(new SPIRVTypePipe(this, getId()));
@@ -748,6 +764,11 @@ SPIRVModuleImpl::addImageType(SPIRVType *SampledType,
 SPIRVTypeSampler *
 SPIRVModuleImpl::addSamplerType() {
   return addType(new SPIRVTypeSampler(this, getId()));
+}
+
+SPIRVTypePipeStorage*
+SPIRVModuleImpl::addPipeStorageType() {
+  return addType(new SPIRVTypePipeStorage(this, getId()));
 }
 
 SPIRVTypeSampledImage *
@@ -1383,6 +1404,8 @@ std::istream &
 operator>> (std::istream &I, SPIRVModule &M) {
   SPIRVDecoder Decoder(I, M);
   SPIRVModuleImpl &MI = *static_cast<SPIRVModuleImpl*>(&M);
+  // Disable automatic capability filling.
+  MI.setAutoAddCapability(false);
 
   SPIRVWord Magic;
   Decoder >> Magic;
@@ -1563,4 +1586,3 @@ bool ConvertSPIRV(std::string &Input, std::string &Out,
 #endif // _SPIRV_SUPPORT_TEXT_FMT
 
 }
-
